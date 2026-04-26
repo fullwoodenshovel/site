@@ -42,6 +42,7 @@ jobs:
         working-directory: matrix-visualiser-src
         run: |
           cargo build --target wasm32-unknown-unknown --release
+          ls target/wasm32-unknown-unknown/release/
           cp target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
              ../dist/matrix/static/matrix-visualiser.wasm
 
