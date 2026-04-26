@@ -1,0 +1,65 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout site repo
+        uses: actions/checkout@v4
+
+      - name: Checkout matrix-visualiser source
+        uses: actions/checkout@v4
+        with:
+          repository: fullwoodenshovel/matrix-visualiser
+          path: matrix-visualiser-src
+
+      - name: Install Rust with WASM target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build matrix-visualiser (desktop)
+        working-directory: matrix-visualiser-src
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Build matrix-visualiser (phone)
+        working-directory: matrix-visualiser-src
+        run: cargo build --target wasm32-unknown-unknown --release --features touchscreen
+
+      # The phone build overwrites the wasm, so we copy desktop first, then rebuild phone
+      # Actually we need to copy after each build. Restructure:
+
+      - name: Assemble dist
+        run: |
+          mkdir -p dist/matrix/static
+
+          # Copy site files
+          cp index.html dist/
+          cp CNAME dist/
+          cp matrix/index.html dist/matrix/
+
+          # Copy built WASMs
+          # Note: both builds output the same filename, so we copy after each
+          cp matrix-visualiser-src/target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
+             dist/matrix/static/matrix-visualiser-phone.wasm
+
+      - name: Rebuild desktop (so we have both)
+        working-directory: matrix-visualiser-src
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Copy desktop WASM
+        run: |
+          cp matrix-visualiser-src/target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
+             dist/matrix/static/matrix-visualiser.wasm
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
