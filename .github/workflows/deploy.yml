@@ -40,6 +40,7 @@ jobs:
           cp index.html dist/
           cp CNAME dist/
           cp matrix/index.html dist/matrix/
+          touch dist/.nojekyll
 
       - name: Build desktop WASM
         working-directory: matrix-visualiser-src
