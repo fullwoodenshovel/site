@@ -2,8 +2,13 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
   deploy:
@@ -24,42 +29,33 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Build matrix-visualiser (desktop)
-        working-directory: matrix-visualiser-src
-        run: cargo build --target wasm32-unknown-unknown --release
+      - name: Create dist folders
+        run: mkdir -p dist/matrix/static
 
-      - name: Build matrix-visualiser (phone)
-        working-directory: matrix-visualiser-src
-        run: cargo build --target wasm32-unknown-unknown --release --features touchscreen
-
-      # The phone build overwrites the wasm, so we copy desktop first, then rebuild phone
-      # Actually we need to copy after each build. Restructure:
-
-      - name: Assemble dist
+      - name: Copy site files
         run: |
-          mkdir -p dist/matrix/static
-
-          # Copy site files
           cp index.html dist/
           cp CNAME dist/
           cp matrix/index.html dist/matrix/
 
-          # Copy built WASMs
-          # Note: both builds output the same filename, so we copy after each
-          cp matrix-visualiser-src/target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
-             dist/matrix/static/matrix-visualiser-phone.wasm
-
-      - name: Rebuild desktop (so we have both)
+      - name: Build desktop WASM
         working-directory: matrix-visualiser-src
-        run: cargo build --target wasm32-unknown-unknown --release
-
-      - name: Copy desktop WASM
         run: |
-          cp matrix-visualiser-src/target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
-             dist/matrix/static/matrix-visualiser.wasm
+          cargo build --target wasm32-unknown-unknown --release
+          cp target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
+             ../dist/matrix/static/matrix-visualiser.wasm
+
+      - name: Build phone WASM
+        working-directory: matrix-visualiser-src
+        run: |
+          cargo build --target wasm32-unknown-unknown --release --features touchscreen
+          cp target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
+             ../dist/matrix/static/matrix-visualiser-phone.wasm
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+        uses: actions/deploy-pages@v4
