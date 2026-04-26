@@ -42,15 +42,14 @@ jobs:
         working-directory: matrix-visualiser-src
         run: |
           cargo build --target wasm32-unknown-unknown --release
-          ls target/wasm32-unknown-unknown/release/
-          cp target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
+          cp target/wasm32-unknown-unknown/release/matrix-visualiser.wasm \
              ../dist/matrix/static/matrix-visualiser.wasm
 
       - name: Build phone WASM
         working-directory: matrix-visualiser-src
         run: |
           cargo build --target wasm32-unknown-unknown --release --features touchscreen
-          cp target/wasm32-unknown-unknown/release/matrix_visualiser.wasm \
+          cp target/wasm32-unknown-unknown/release/matrix-visualiser.wasm \
              ../dist/matrix/static/matrix-visualiser-phone.wasm
 
       - name: Upload Pages artifact
