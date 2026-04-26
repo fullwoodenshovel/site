@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>fullw.me</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #0d0d0d;
+            color: #e0e0e0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            min-height: 100dvh;
+            padding: 48px 32px;
+        }
+
+        header {
+            margin-bottom: 48px;
+        }
+
+        h1 {
+            font-size: 20px;
+            color: #7ecfff;
+            font-weight: normal;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #999;
+            font-style: italic;
+        }
+
+        section {
+            margin-bottom: 48px;
+        }
+
+        .section-title {
+            color: #999;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #2a2a2a;
+            padding-bottom: 6px;
+        }
+
+        .card {
+            display: block;
+            padding: 16px;
+            border: 1px solid #2a2a2a;
+            margin-bottom: 10px;
+            text-decoration: none;
+            color: inherit;
+            transition: border-color 0.15s;
+        }
+
+        .card:hover {
+            border-color: #7ecfff;
+        }
+
+        .card-title {
+            color: #7ecfff;
+            margin-bottom: 4px;
+        }
+
+        .card-desc {
+            color: #999;
+            font-size: 12px;
+        }
+
+        footer {
+            color: #444;
+            font-size: 12px;
+            margin-top: 64px;
+        }
+
+        a { color: #7ecfff; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>fullw.me</h1>
+    <p class="subtitle">maths, physics, computer science.</p>
+</header>
+
+<section>
+    <div class="section-title">visualisers</div>
+    <a class="card" href="/matrix/">
+        <div class="card-title">matrix visualiser</div>
+        <div class="card-desc">interactive 2×2 matrix transformations — enter expressions, watch them animate.</div>
+    </a>
+</section>
+
+<footer>
+    <a href="https://github.com/fullwoodenshovel">github</a>
+</footer>
+
+</body>
+</html>
