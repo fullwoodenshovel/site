@@ -1,0 +1,14 @@
+[
+  {
+    "pathname": "static/matrix",
+    "features": [],
+    "filename": "matrix-visualiser.wasm"
+  },
+  {
+    "pathname": "static/matrix",
+    "features": [
+      "touchscreen"
+    ],
+    "filename": "matrix-visualiser-phone.wasm"
+  }
+]

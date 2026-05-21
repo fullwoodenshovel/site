@@ -1,22 +1,18 @@
 name: Deploy to GitHub Pages
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Checkout site repo
         uses: actions/checkout@v4
@@ -32,29 +28,39 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Create dist folders
-        run: mkdir -p dist/matrix/static
-
       - name: Copy site files
         run: |
+          mkdir -p dist/matrix
           cp index.html dist/
           cp CNAME dist/
           cp matrix/index.html dist/matrix/
           touch dist/.nojekyll
 
-      - name: Build desktop WASM
-        working-directory: matrix-visualiser-src
+      - name: Build WASM targets from layout.json
         run: |
-          cargo build --target wasm32-unknown-unknown --release
-          cp target/wasm32-unknown-unknown/release/matrix-visualiser.wasm \
-             ../dist/matrix/static/matrix-visualiser.wasm
+          jq -c '.[]' layout.json | while read -r entry; do
+            pathname=$(echo "$entry" | jq -r '.pathname')
+            filename=$(echo "$entry" | jq -r '.filename')
+            features=$(echo "$entry" | jq -r '[.features[]] | join(",")')
 
-      - name: Build phone WASM
-        working-directory: matrix-visualiser-src
-        run: |
-          cargo build --target wasm32-unknown-unknown --release --features touchscreen
-          cp target/wasm32-unknown-unknown/release/matrix-visualiser.wasm \
-             ../dist/matrix/static/matrix-visualiser-phone.wasm
+            mkdir -p "$GITHUB_WORKSPACE/dist/$pathname"
+
+            if [ -n "$features" ]; then
+              cargo build \
+                --manifest-path "$GITHUB_WORKSPACE/matrix-visualiser-src/Cargo.toml" \
+                --target wasm32-unknown-unknown \
+                --release \
+                --features "$features"
+            else
+              cargo build \
+                --manifest-path "$GITHUB_WORKSPACE/matrix-visualiser-src/Cargo.toml" \
+                --target wasm32-unknown-unknown \
+                --release
+            fi
+
+            cp "$GITHUB_WORKSPACE/matrix-visualiser-src/target/wasm32-unknown-unknown/release/matrix-visualiser.wasm" \
+               "$GITHUB_WORKSPACE/dist/$pathname/$filename"
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
