@@ -1,14 +1,18 @@
 [
   {
-    "pathname": "static/matrix",
-    "features": [],
-    "filename": "matrix-visualiser.wasm"
+    "source": "fullwoodenshovel/matrix-visualiser",
+    "pathname": "static/matrix/matrix-visualiser.wasm",
+    "features": []
   },
   {
-    "pathname": "static/matrix",
+    "source": "fullwoodenshovel/matrix-visualiser",
+    "pathname": "static/matrix/matrix-visualiser-phone.wasm",
     "features": [
       "touchscreen"
-    ],
-    "filename": "matrix-visualiser-phone.wasm"
+    ]
+  },
+  {
+    "source": "fullwoodenshovel/matrix-visualiser/index.html",
+    "pathname": "matrix/index.html"
   }
 ]

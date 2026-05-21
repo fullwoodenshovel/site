@@ -1,3 +1,7 @@
+# layout.json can be understood from the examples already in it and the following information:
+# If "features" key is present, it compiles the code for WASM and takes the file compiled
+# If "features" key is not present, it takes the file directly from the source code.
+
 name: Deploy to GitHub Pages
 on:
   push:
@@ -17,49 +21,69 @@ jobs:
       - name: Checkout site repo
         uses: actions/checkout@v4
 
-      - name: Checkout matrix-visualiser source
-        uses: actions/checkout@v4
-        with:
-          repository: fullwoodenshovel/matrix-visualiser
-          path: matrix-visualiser-src
-
       - name: Install Rust with WASM target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Copy site files
+      - name: Copy site/index into dist
         run: |
-          mkdir -p dist/matrix
-          cp index.html dist/
-          cp CNAME dist/
-          cp matrix/index.html dist/matrix/
+          mkdir -p dist
+          cp -r site/index/. dist/
           touch dist/.nojekyll
 
-      - name: Build WASM targets from layout.json
+      - name: Build and copy targets from layout.json
         run: |
           jq -c '.[]' layout.json | while read -r entry; do
+            source=$(echo "$entry"   | jq -r '.source')
             pathname=$(echo "$entry" | jq -r '.pathname')
-            filename=$(echo "$entry" | jq -r '.filename')
-            features=$(echo "$entry" | jq -r '[.features[]] | join(",")')
 
-            mkdir -p "$GITHUB_WORKSPACE/dist/$pathname"
+            mkdir -p "$GITHUB_WORKSPACE/dist/$(dirname "$pathname")"
 
-            if [ -n "$features" ]; then
-              cargo build \
-                --manifest-path "$GITHUB_WORKSPACE/matrix-visualiser-src/Cargo.toml" \
-                --target wasm32-unknown-unknown \
-                --release \
-                --features "$features"
+            if echo "$entry" | jq -e 'has("features")' > /dev/null; then
+              # WASM build — source is owner/repo
+              features=$(echo "$entry" | jq -r '[.features[]] | join(",")')
+              srcdir="$GITHUB_WORKSPACE/sources/$source"
+
+              if [ ! -d "$srcdir" ]; then
+                mkdir -p "$(dirname "$srcdir")"
+                git clone "https://github.com/$source" "$srcdir"
+              fi
+
+              if [ -n "$features" ]; then
+                cargo build \
+                  --manifest-path "$srcdir/Cargo.toml" \
+                  --target wasm32-unknown-unknown \
+                  --release \
+                  --features "$features"
+              else
+                cargo build \
+                  --manifest-path "$srcdir/Cargo.toml" \
+                  --target wasm32-unknown-unknown \
+                  --release
+              fi
+
+              pkgname=$(cargo metadata \
+                --manifest-path "$srcdir/Cargo.toml" \
+                --no-deps --format-version 1 \
+                | jq -r '.packages[0].name')
+
+              cp "$srcdir/target/wasm32-unknown-unknown/release/${pkgname}.wasm" \
+                 "$GITHUB_WORKSPACE/dist/$pathname"
+
             else
-              cargo build \
-                --manifest-path "$GITHUB_WORKSPACE/matrix-visualiser-src/Cargo.toml" \
-                --target wasm32-unknown-unknown \
-                --release
-            fi
+              # File copy — source is owner/repo/path/to/file
+              repopath=$(echo "$source" | cut -d'/' -f1-2)
+              filepath=$(echo "$source" | cut -d'/' -f3-)
+              srcdir="$GITHUB_WORKSPACE/sources/$repopath"
 
-            cp "$GITHUB_WORKSPACE/matrix-visualiser-src/target/wasm32-unknown-unknown/release/matrix-visualiser.wasm" \
-               "$GITHUB_WORKSPACE/dist/$pathname/$filename"
+              if [ ! -d "$srcdir" ]; then
+                mkdir -p "$(dirname "$srcdir")"
+                git clone "https://github.com/$repopath" "$srcdir"
+              fi
+
+              cp "$srcdir/$filepath" "$GITHUB_WORKSPACE/dist/$pathname"
+            fi
           done
 
       - name: Upload Pages artifact
