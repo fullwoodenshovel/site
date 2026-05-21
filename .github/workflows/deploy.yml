@@ -26,10 +26,10 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Copy site/index into dist
+      - name: Copy index into dist
         run: |
           mkdir -p dist
-          cp -r site/index/. dist/
+          cp -r index/. dist/
           touch dist/.nojekyll
 
       - name: Build and copy targets from layout.json
