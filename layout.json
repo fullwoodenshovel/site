@@ -12,7 +12,7 @@
     ]
   },
   {
-    "source": "fullwoodenshovel/matrix-visualiser/index.html",
+    "source": "fullwoodenshovel/matrix-visualiser/src/index.html",
     "pathname": "matrix/index.html"
   }
 ]
