@@ -1,60 +1,86 @@
 name: Deploy to GitHub Pages
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Checkout site repo
         uses: actions/checkout@v4
-
-      - name: Checkout matrix-visualiser source
-        uses: actions/checkout@v4
-        with:
-          repository: fullwoodenshovel/matrix-visualiser
-          path: matrix-visualiser-src
 
       - name: Install Rust with WASM target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Create dist folders
-        run: mkdir -p dist/matrix/static
-
-      - name: Copy site files
+      - name: Copy index/ into dist
         run: |
-          cp index.html dist/
-          cp CNAME dist/
-          cp matrix/index.html dist/matrix/
+          mkdir -p dist
+          cp -r index/. dist/
           touch dist/.nojekyll
 
-      - name: Build desktop WASM
-        working-directory: matrix-visualiser-src
+      - name: Build and copy targets from layout.json
         run: |
-          cargo build --target wasm32-unknown-unknown --release
-          cp target/wasm32-unknown-unknown/release/matrix-visualiser.wasm \
-             ../dist/matrix/static/matrix-visualiser.wasm
+          jq -c '.[]' layout.json | while read -r entry; do
+            source=$(echo "$entry"   | jq -r '.source')
+            pathname=$(echo "$entry" | jq -r '.pathname')
 
-      - name: Build phone WASM
-        working-directory: matrix-visualiser-src
-        run: |
-          cargo build --target wasm32-unknown-unknown --release --features touchscreen
-          cp target/wasm32-unknown-unknown/release/matrix-visualiser.wasm \
-             ../dist/matrix/static/matrix-visualiser-phone.wasm
+            mkdir -p "$GITHUB_WORKSPACE/dist/$(dirname "$pathname")"
+
+            if echo "$entry" | jq -e 'has("features")' > /dev/null; then
+              # WASM build — source is owner/repo
+              features=$(echo "$entry" | jq -r '[.features[]] | join(",")')
+              srcdir="$GITHUB_WORKSPACE/sources/$source"
+
+              if [ ! -d "$srcdir" ]; then
+                mkdir -p "$(dirname "$srcdir")"
+                git clone "https://github.com/$source" "$srcdir"
+              fi
+
+              if [ -n "$features" ]; then
+                cargo build \
+                  --manifest-path "$srcdir/Cargo.toml" \
+                  --target wasm32-unknown-unknown \
+                  --release \
+                  --features "$features"
+              else
+                cargo build \
+                  --manifest-path "$srcdir/Cargo.toml" \
+                  --target wasm32-unknown-unknown \
+                  --release
+              fi
+
+              pkgname=$(cargo metadata \
+                --manifest-path "$srcdir/Cargo.toml" \
+                --no-deps --format-version 1 \
+                | jq -r '.packages[0].name')
+
+              cp "$srcdir/target/wasm32-unknown-unknown/release/${pkgname}.wasm" \
+                 "$GITHUB_WORKSPACE/dist/$pathname"
+
+            else
+              # File copy — source is owner/repo/path/to/file
+              repopath=$(echo "$source" | cut -d'/' -f1-2)
+              filepath=$(echo "$source" | cut -d'/' -f3-)
+              srcdir="$GITHUB_WORKSPACE/sources/$repopath"
+
+              if [ ! -d "$srcdir" ]; then
+                mkdir -p "$(dirname "$srcdir")"
+                git clone "https://github.com/$repopath" "$srcdir"
+              fi
+
+              cp "$srcdir/$filepath" "$GITHUB_WORKSPACE/dist/$pathname"
+            fi
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
