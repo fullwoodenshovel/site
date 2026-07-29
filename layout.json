@@ -28,7 +28,7 @@
   {
     "source": "fullwoodenshovel/crochet-generator",
     "build_commands": [
-      "cargo build --target --wasm32-unknown-unknown --release",
+      "cargo build --target wasm32-unknown-unknown --release",
       "mkdir -p \"$SITE/crochet/static\"",
       "cp target/wasm32-unknown-unknown/release/crochet-generator.wasm \"$SITE/crochet/static/crochet-generator.wasm\"",
       "cargo install wasm-bindgen-cli --version 0.2.126",
