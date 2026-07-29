@@ -98,8 +98,23 @@ def clone(repo):
     srcdir = SOURCES / repo
     if not srcdir.is_dir():
         srcdir.parent.mkdir(parents=True, exist_ok=True)
-        run(["git", "clone", "--depth", "1",
-             f"https://github.com/{repo}", str(srcdir)])
+        cmd = ["git", "clone", "--depth", "1",
+               f"https://github.com/{repo}", str(srcdir)]
+        log(f"$ {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            log(result.stderr.rstrip())
+            # git can't prompt for credentials in CI, so a private (or
+            # nonexistent) repo shows up as a missing-username error
+            haystack = result.stderr.lower()
+            if any(s in haystack for s in ("could not read username",
+                                           "authentication failed",
+                                           "repository not found",
+                                           "terminal prompts disabled")):
+                die(f"cannot access github.com/{repo} — it is private, or the "
+                    f"name in layout.json is wrong. Make the repo public, or "
+                    f"add a SOURCES_TOKEN secret with read access to it.")
+            die(f"git clone of {repo} failed (exit {result.returncode})")
     return srcdir
 
 
