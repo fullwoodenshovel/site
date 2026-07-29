@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 WORKSPACE = Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd()))
 DIST = WORKSPACE / "dist"
@@ -21,7 +22,7 @@ def log(msg=""):
     print(msg, flush=True)
 
 
-def die(msg):
+def die(msg) -> NoReturn:
     log(f"::error::{msg}")
     sys.exit(1)
 
@@ -135,22 +136,35 @@ def build_wasm(entry, srcdir):
     workdir = cargo_dir(srcdir)
     features = entry.get("features") or []
 
-    cmd = ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]
+    cmd = ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release",
+           "--message-format", "json-render-diagnostics"]
     if features:
         cmd += ["--features", ",".join(features)]
-    run(cmd, cwd=workdir)
 
-    meta = subprocess.run(
-        ["cargo", "metadata", "--no-deps", "--format-version", "1"],
-        cwd=workdir, capture_output=True, text=True)
-    if meta.returncode != 0:
-        die(f"cargo metadata failed in {workdir}:\n{meta.stderr}")
-    pkgname = json.loads(meta.stdout)["packages"][0]["name"].replace("-", "_")
+    # diagnostics go to stderr (straight to the log); artifact paths come back
+    # as JSON on stdout, so cargo tells us the filename instead of us guessing
+    log(f"$ {' '.join(cmd)}")
+    proc = subprocess.Popen(cmd, cwd=workdir, stdout=subprocess.PIPE, text=True)
+    if proc.stdout is None:
+        die("could not capture cargo output")
+    wasm = []
+    for line in proc.stdout:
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if msg.get("reason") == "compiler-artifact":
+            wasm += [Path(f) for f in msg.get("filenames", [])
+                     if f.endswith(".wasm")]
+    if proc.wait() != 0:
+        die(f"cargo build failed (exit {proc.returncode}) in {workdir}")
 
-    artifact = workdir / "target/wasm32-unknown-unknown/release" / f"{pkgname}.wasm"
-    if not artifact.is_file():
-        die(f"expected build artifact not found: {artifact}")
-    copy_into_dist(artifact, entry["pathname"])
+    if not wasm:
+        die(f"cargo reported no .wasm artifact in {workdir} — is the crate a "
+            f"bin or cdylib target?")
+    if len(wasm) > 1:
+        log(f"-- note: {len(wasm)} wasm artifacts, using {wasm[-1].name}")
+    copy_into_dist(wasm[-1], entry["pathname"])
 
 
 def copy_file(entry, srcdir, relpath):
