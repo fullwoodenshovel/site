@@ -32,7 +32,7 @@
       "mkdir -p \"$SITE/crochet/static\"",
       "cp target/wasm32-unknown-unknown/release/crochet-generator.wasm \"$SITE/crochet/static/crochet-generator.wasm\"",
       "cargo install wasm-bindgen-cli --version 0.2.126",
-      "wasm-bindgen \"$SITE/crochet/static\" --out-dir \"$SITE/crochet/static\" --target web"
+      "wasm-bindgen \"$SITE/crochet/static/crochet-generator.wasm\" --out-dir \"$SITE/crochet/static\" --target web"
     ]
   }
 ]
