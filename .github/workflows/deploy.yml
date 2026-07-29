@@ -13,6 +13,8 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      SITE: ${{ github.workspace }}/dist
     steps:
       - name: Checkout site repo
         uses: actions/checkout@v4
@@ -28,59 +30,247 @@ jobs:
           cp -r index/. dist/
           touch dist/.nojekyll
 
-      - name: Build and copy targets from layout.json
+      - name: Build targets and generate index.html
         run: |
-          jq -c '.[]' layout.json | while read -r entry; do
-            source=$(echo "$entry"   | jq -r '.source')
-            pathname=$(echo "$entry" | jq -r '.pathname')
+          python3 - <<'PY'
+          #!/usr/bin/env python3
+          """Reads layout.json + sections.json, clones sources, builds targets,
+          and writes the generated sections into dist/index.html."""
 
-            mkdir -p "$GITHUB_WORKSPACE/dist/$(dirname "$pathname")"
+          import html
+          import json
+          import os
+          import posixpath
+          import shutil
+          import subprocess
+          import sys
+          from pathlib import Path
 
-            if echo "$entry" | jq -e 'has("features")' > /dev/null; then
-              # WASM build — source is owner/repo
-              features=$(echo "$entry" | jq -r '[.features[]] | join(",")')
-              srcdir="$GITHUB_WORKSPACE/sources/$source"
+          WORKSPACE = Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd()))
+          DIST = WORKSPACE / "dist"
+          SOURCES = WORKSPACE / "sources"
+          PLACEHOLDER = "<!-- SECTIONS -->"
 
-              if [ ! -d "$srcdir" ]; then
-                mkdir -p "$(dirname "$srcdir")"
-                git clone "https://github.com/$source" "$srcdir"
-              fi
 
-              if [ -n "$features" ]; then
-                cargo build \
-                  --manifest-path "$srcdir/Cargo.toml" \
-                  --target wasm32-unknown-unknown \
-                  --release \
-                  --features "$features"
-              else
-                cargo build \
-                  --manifest-path "$srcdir/Cargo.toml" \
-                  --target wasm32-unknown-unknown \
-                  --release
-              fi
+          def die(msg):
+              print(f"::error::{msg}")
+              sys.exit(1)
 
-              pkgname=$(cargo metadata \
-                --manifest-path "$srcdir/Cargo.toml" \
-                --no-deps --format-version 1 \
-                | jq -r '.packages[0].name')
 
-              cp "$srcdir/target/wasm32-unknown-unknown/release/${pkgname}.wasm" \
-                 "$GITHUB_WORKSPACE/dist/$pathname"
+          def run(cmd, cwd=None, env=None):
+              print(f"$ {cmd if isinstance(cmd, str) else ' '.join(cmd)}")
+              subprocess.run(cmd, cwd=cwd, env=env, check=True,
+                             shell=isinstance(cmd, str))
 
-            else
-              # File copy — source is owner/repo/path/to/file
-              repopath=$(echo "$source" | cut -d'/' -f1-2)
-              filepath=$(echo "$source" | cut -d'/' -f3-)
-              srcdir="$GITHUB_WORKSPACE/sources/$repopath"
 
-              if [ ! -d "$srcdir" ]; then
-                mkdir -p "$(dirname "$srcdir")"
-                git clone "https://github.com/$repopath" "$srcdir"
-              fi
+          # --------------------------------------------------------------------------
+          # load + validate
+          # --------------------------------------------------------------------------
 
-              cp "$srcdir/$filepath" "$GITHUB_WORKSPACE/dist/$pathname"
-            fi
-          done
+          def load():
+              layout = json.loads((WORKSPACE / "layout.json").read_text())
+              sections = json.loads((WORKSPACE / "sections.json").read_text())
+
+              if not isinstance(layout, list):
+                  die("layout.json must be a list of entries")
+              if not isinstance(sections, list):
+                  die("sections.json must be a list of sections (order matters)")
+
+              section_ids = []
+              for i, s in enumerate(sections):
+                  if "id" not in s or "name" not in s:
+                      die(f'sections.json[{i}]: needs at least "id" and "name"')
+                  if s["id"] in section_ids:
+                      die(f'sections.json[{i}]: duplicate id "{s["id"]}"')
+                  section_ids.append(s["id"])
+
+              errors = []
+              for i, e in enumerate(layout):
+                  tag = f'layout.json[{i}] ({e.get("source", "<no source>")})'
+
+                  if "source" not in e:
+                      errors.append(f'{tag}: missing "source"')
+
+                  if "features" in e and "build_commands" in e:
+                      errors.append(
+                          f'{tag}: "features" and "build_commands" are mutually '
+                          f'exclusive — a custom build owns the whole build')
+
+                  if "build_commands" not in e and "pathname" not in e:
+                      errors.append(f'{tag}: missing "pathname"')
+
+                  if "section" in e:
+                      if e["section"] not in section_ids:
+                          errors.append(f'{tag}: unknown section "{e["section"]}" '
+                                        f'(not in sections.json)')
+                      if not e.get("name"):
+                          errors.append(f'{tag}: entries with a "section" need a "name"')
+                      if not (e.get("href") or e.get("pathname")):
+                          errors.append(f'{tag}: entries with a "section" need a '
+                                        f'"href" or a "pathname" to link to')
+
+              if errors:
+                  for err in errors:
+                      print(f"::error::{err}")
+                  sys.exit(1)
+
+              return layout, sections
+
+
+          # --------------------------------------------------------------------------
+          # sources
+          # --------------------------------------------------------------------------
+
+          def clone(repo):
+              """repo is 'owner/name'. Returns the local checkout path."""
+              srcdir = SOURCES / repo
+              if not srcdir.is_dir():
+                  srcdir.parent.mkdir(parents=True, exist_ok=True)
+                  run(["git", "clone", "--depth", "1",
+                       f"https://github.com/{repo}", str(srcdir)])
+              return srcdir
+
+
+          def cargo_dir(srcdir):
+              """Directory holding Cargo.toml, so `cargo build` just works."""
+              if (srcdir / "Cargo.toml").is_file():
+                  return srcdir
+              for candidate in sorted(srcdir.rglob("Cargo.toml")):
+                  if "target" not in candidate.parts:
+                      return candidate.parent
+              return srcdir
+
+
+          # --------------------------------------------------------------------------
+          # build kinds
+          # --------------------------------------------------------------------------
+
+          def build_custom(entry, srcdir):
+              cmds = entry["build_commands"]
+              if isinstance(cmds, list):
+                  cmds = "\n".join(cmds)
+
+              workdir = cargo_dir(srcdir)
+              env = dict(os.environ, SITE=str(DIST), SOURCE_DIR=str(srcdir))
+
+              script = WORKSPACE / ".build_commands.sh"
+              script.write_text("set -euo pipefail\n" + cmds + "\n")
+              print(f"-- custom build in {workdir} (SITE={DIST})")
+              run(["bash", str(script)], cwd=workdir, env=env)
+              script.unlink()
+
+
+          def build_wasm(entry, srcdir):
+              workdir = cargo_dir(srcdir)
+              features = entry.get("features") or []
+
+              cmd = ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]
+              if features:
+                  cmd += ["--features", ",".join(features)]
+              run(cmd, cwd=workdir)
+
+              meta = subprocess.run(
+                  ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+                  cwd=workdir, check=True, capture_output=True, text=True)
+              pkgname = json.loads(meta.stdout)["packages"][0]["name"].replace("-", "_")
+
+              artifact = workdir / "target/wasm32-unknown-unknown/release" / f"{pkgname}.wasm"
+              if not artifact.is_file():
+                  die(f"expected build artifact not found: {artifact}")
+              copy_into_dist(artifact, entry["pathname"])
+
+
+          def copy_file(entry, srcdir, relpath):
+              src = srcdir / relpath
+              if not src.exists():
+                  die(f'{entry["source"]}: no such file in repo: {relpath}')
+              copy_into_dist(src, entry["pathname"])
+
+
+          def copy_into_dist(src, pathname):
+              dest = DIST / pathname
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src, dest)
+              print(f"-- {src} -> dist/{pathname}")
+
+
+          def build(layout):
+              for entry in layout:
+                  parts = entry["source"].split("/")
+                  repo, relpath = "/".join(parts[:2]), "/".join(parts[2:])
+                  srcdir = clone(repo)
+
+                  print(f"\n=== {entry['source']}")
+                  if "build_commands" in entry:
+                      build_custom(entry, srcdir)
+                  elif relpath:
+                      copy_file(entry, srcdir, relpath)
+                  else:
+                      build_wasm(entry, srcdir)
+
+
+          # --------------------------------------------------------------------------
+          # index.html
+          # --------------------------------------------------------------------------
+
+          def href_for(entry):
+              if entry.get("href"):
+                  return entry["href"]
+              pathname = entry["pathname"]
+              directory = posixpath.dirname(pathname)
+              if posixpath.basename(pathname).startswith("index."):
+                  return f"/{directory}/" if directory else "/"
+              return f"/{pathname}"
+
+
+          def render_sections(layout, sections):
+              out = []
+              for section in sections:
+                  cards = [e for e in layout if e.get("section") == section["id"]]
+                  if not cards:
+                      print(f'-- section "{section["id"]}" has no entries, skipping')
+                      continue
+
+                  out.append("<section>")
+                  out.append(f'    <div class="section-title">'
+                             f'{html.escape(section["name"])}</div>')
+                  if section.get("subtitle"):
+                      out.append(f'    <div class="section-subtitle">'
+                                 f'{html.escape(section["subtitle"])}</div>')
+                  for e in cards:
+                      out.append(f'    <a class="card" href="{html.escape(href_for(e))}">')
+                      out.append(f'        <div class="card-title">'
+                                 f'{html.escape(e["name"])}</div>')
+                      if e.get("description"):
+                          out.append(f'        <div class="card-desc">'
+                                     f'{html.escape(e["description"])}</div>')
+                      out.append("    </a>")
+                  out.append("</section>")
+                  out.append("")
+              return "\n".join(out).rstrip("\n")
+
+
+          def write_index(layout, sections):
+              index = DIST / "index.html"
+              if not index.is_file():
+                  die("dist/index.html missing — was index/ copied into dist?")
+              source = index.read_text()
+              if PLACEHOLDER not in source:
+                  die(f"index.html has no {PLACEHOLDER} placeholder to fill")
+              index.write_text(source.replace(PLACEHOLDER, render_sections(layout, sections)))
+              print("-- wrote dist/index.html")
+
+
+          if __name__ == "__main__":
+              layout, sections = load()
+              print("layout.json and sections.json look fine")
+              build(layout)
+              print()
+              write_index(layout, sections)
+          PY
+
+      - name: Check dist contents
+        run: find dist -type f
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -90,6 +280,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-      - name: Check dist contents
-        run: find dist -type f

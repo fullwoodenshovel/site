@@ -1,0 +1,17 @@
+[
+  {
+    "id": "visualisers",
+    "name": "Visualisers",
+    "subtitle": "Interactive web demos and animations."
+  },
+  {
+    "id": "demos",
+    "name": "Demos",
+    "subtitle": "The demos I use in my videos."
+  },
+  {
+    "id": "playground",
+    "name": "Playground",
+    "subtitle": "Extra stuff I make that you can have fun with."
+  }
+]

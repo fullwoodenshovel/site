@@ -13,6 +13,26 @@
   },
   {
     "source": "fullwoodenshovel/matrix-visualiser/src/index.html",
-    "pathname": "matrix/index.html"
+    "pathname": "matrix/index.html",
+    "section": "visualisers",
+    "name": "matrix visualiser",
+    "description": "2×2 matrix transformation visualiser"
+  },
+  {
+    "source": "fullwoodenshovel/crochet-generator/src/index.html",
+    "pathname": "crochet/index.html",
+    "section": "playground",
+    "name": "crochet generator",
+    "description": "makes 3D stl files into crochet patterns"
+  },
+  {
+    "source": "fullwoodenshovel/crochet-generator",
+    "build_commands": [
+      "cargo build --target --wasm32-unknown-unknown --release",
+      "mkdir -p \"$SITE/crochet/static\"",
+      "cp target/wasm32-unknown-unknown/release/crochet-generator.wasm \"$SITE/crochet/static/crochet-generator.wasm\"",
+      "cargo install wasm-bindgen-cli --version 0.2.126",
+      "wasm-bindgen \"$SITE/crochet/static\" --out-dir \"$SITE/crochet/static\" --target web"
+    ]
   }
 ]
